@@ -1,0 +1,86 @@
+name: Deploy
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    branches:
+      - main
+      - staging
+    types:
+      - completed
+
+concurrency:
+  group: fly-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Fly.io
+    if: ${{ github.event.workflow_run.conclusion == 'success' && (github.event.workflow_run.head_branch == 'main' || github.event.workflow_run.head_branch == 'staging') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: ${{ github.event.workflow_run.head_branch == 'main' && 'production' || 'staging' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Setup flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Validate deployment secrets
+        run: |
+          missing=0
+
+          for name in FLY_API_TOKEN INKLINK_APP_ENV INKLINK_FLY_APP INKLINK_HOST INKLINK_MONGODB_URI INKLINK_NODE_ENV INKLINK_PORT; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing required GitHub secret: ${name}"
+              missing=1
+            fi
+          done
+
+          internal_port="$(awk -F '=' '/internal_port/ { gsub(/[ "]/, "", $2); print $2; exit }' fly.toml)"
+
+          if [ "$INKLINK_PORT" != "$internal_port" ]; then
+            echo "::error::INKLINK_PORT must match fly.toml internal_port. INKLINK_PORT=${INKLINK_PORT}, internal_port=${internal_port}"
+            missing=1
+          fi
+
+          exit "$missing"
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          INKLINK_APP_ENV: ${{ secrets.INKLINK_APP_ENV }}
+          INKLINK_FLY_APP: ${{ secrets.INKLINK_FLY_APP }}
+          INKLINK_HOST: ${{ secrets.INKLINK_HOST }}
+          INKLINK_MONGODB_URI: ${{ secrets.INKLINK_MONGODB_URI }}
+          INKLINK_NODE_ENV: ${{ secrets.INKLINK_NODE_ENV }}
+          INKLINK_PORT: ${{ secrets.INKLINK_PORT }}
+
+      - name: Stage Fly runtime secrets
+        run: |
+          flyctl secrets set \
+            APP_ENV="$INKLINK_APP_ENV" \
+            HOST="$INKLINK_HOST" \
+            MONGODB_URI="$INKLINK_MONGODB_URI" \
+            NODE_ENV="$INKLINK_NODE_ENV" \
+            PORT="$INKLINK_PORT" \
+            --app "$INKLINK_FLY_APP" \
+            --stage
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          INKLINK_APP_ENV: ${{ secrets.INKLINK_APP_ENV }}
+          INKLINK_FLY_APP: ${{ secrets.INKLINK_FLY_APP }}
+          INKLINK_HOST: ${{ secrets.INKLINK_HOST }}
+          INKLINK_MONGODB_URI: ${{ secrets.INKLINK_MONGODB_URI }}
+          INKLINK_NODE_ENV: ${{ secrets.INKLINK_NODE_ENV }}
+          INKLINK_PORT: ${{ secrets.INKLINK_PORT }}
+
+      - name: Deploy
+        run: flyctl deploy --remote-only --config fly.toml --app "$INKLINK_FLY_APP"
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          INKLINK_FLY_APP: ${{ secrets.INKLINK_FLY_APP }}

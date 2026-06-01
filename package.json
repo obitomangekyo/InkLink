@@ -1,0 +1,33 @@
+{
+  "name": "inklink",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.5.0",
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter @inklink/shared build && pnpm --parallel --filter @inklink/api --filter @inklink/web dev",
+    "dev:api": "pnpm --filter @inklink/api dev",
+    "dev:web": "pnpm --filter @inklink/web dev",
+    "build": "pnpm --recursive --if-present build",
+    "check": "biome check .",
+    "check:write": "biome check --write .",
+    "commitlint": "commitlint",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "hooks:install": "lefthook install",
+    "typecheck": "pnpm --recursive --if-present typecheck",
+    "lint": "biome lint ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.16",
+    "@commitlint/cli": "^21.0.2",
+    "@commitlint/config-conventional": "^21.0.2",
+    "@types/node": "^24.12.4",
+    "lefthook": "^2.1.9",
+    "typescript": "^6.0.3"
+  },
+  "engines": {
+    "node": ">=24.16.0 <25",
+    "pnpm": ">=11 <12"
+  }
+}
