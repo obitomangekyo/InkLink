@@ -297,6 +297,21 @@ button:disabled {
   text-transform: capitalize;
 }
 
+.zoom-row {
+  flex-wrap: nowrap;
+}
+
+.zoom-row .ink-tool-button {
+  flex: 0 0 auto;
+  padding: 0 10px;
+}
+
+.zoom-percent {
+  flex: 1 1 auto;
+  font-variant-numeric: tabular-nums;
+  min-width: 5ch;
+}
+
 .segmented-control button[aria-pressed="true"] {
   background: #8fb9a8;
   box-shadow:

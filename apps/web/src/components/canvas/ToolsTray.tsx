@@ -13,13 +13,17 @@ type ToolsTrayProps = {
   onMoveStart: (event: React.PointerEvent) => void;
   onMoveUpdate: (event: React.PointerEvent) => void;
   onRedo: () => void;
+  onResetZoom: () => void;
   onToolChange: (tool: Tool) => void;
   onToggle: () => void;
   onUndo: () => void;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
   palette: string[];
   panel: FloatingPanelState;
   registerPanel: (element: HTMLElement | null) => void;
   stats: BoardStats;
+  zoom: number;
 };
 
 const toolOptions: Array<{ icon: string; label: string; value: Tool }> = [
@@ -27,6 +31,8 @@ const toolOptions: Array<{ icon: string; label: string; value: Tool }> = [
   { icon: "hugeicons:eraser", label: "Eraser", value: "eraser" },
   { icon: "hugeicons:hand-grab", label: "Pan", value: "pan" }
 ];
+
+const formatZoomPercent = (zoom: number) => `${Math.round(zoom * 100)}%`;
 
 export function ToolsTray({
   activeColor,
@@ -39,13 +45,17 @@ export function ToolsTray({
   onMoveStart,
   onMoveUpdate,
   onRedo,
+  onResetZoom,
   onToolChange,
   onToggle,
   onUndo,
+  onZoomIn,
+  onZoomOut,
   palette,
   panel,
   registerPanel,
-  stats
+  stats,
+  zoom
 }: ToolsTrayProps) {
   return (
     <aside
@@ -130,6 +140,30 @@ export function ToolsTray({
             value={activeColor}
           />
         </fieldset>
+
+        <div className="action-row zoom-row">
+          <button
+            aria-label="Zoom out"
+            className="ink-tool-button"
+            onClick={onZoomOut}
+            type="button"
+          >
+            <Icon aria-hidden icon="hugeicons:minus-sign" />
+            <span className="sr-only">Zoom out</span>
+          </button>
+          <button
+            aria-label={`Reset zoom (currently ${formatZoomPercent(zoom)})`}
+            className="ink-tool-button zoom-percent"
+            onClick={onResetZoom}
+            type="button"
+          >
+            {formatZoomPercent(zoom)}
+          </button>
+          <button aria-label="Zoom in" className="ink-tool-button" onClick={onZoomIn} type="button">
+            <Icon aria-hidden icon="hugeicons:plus-sign" />
+            <span className="sr-only">Zoom in</span>
+          </button>
+        </div>
 
         <div className="action-row">
           <button
