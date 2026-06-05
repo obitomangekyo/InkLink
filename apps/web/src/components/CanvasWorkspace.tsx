@@ -46,7 +46,9 @@ export function CanvasWorkspace() {
     panIndicator,
     pointer,
     redo,
-    undo
+    resetZoom,
+    undo,
+    zoomBy
   } = useCanvasRenderer({
     activeColorRef,
     activeToolRef,
@@ -54,6 +56,9 @@ export function CanvasWorkspace() {
     isSpaceHeld,
     onStatsChange: setBoardStats
   });
+
+  const onZoomIn = useCallback(() => zoomBy(1.2), [zoomBy]);
+  const onZoomOut = useCallback(() => zoomBy(1 / 1.2), [zoomBy]);
 
   useEffect(() => {
     activeColorRef.current = activeColor;
@@ -70,8 +75,11 @@ export function CanvasWorkspace() {
   useCanvasHotkeys({
     onClear: clearBoard,
     onRedo: redo,
+    onResetZoom: resetZoom,
     onSelectTool: setActiveTool,
-    onUndo: undo
+    onUndo: undo,
+    onZoomIn,
+    onZoomOut
   });
 
   const startPanelDrag = useCallback(
