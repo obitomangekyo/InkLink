@@ -6,15 +6,21 @@ import type { Tool } from "./types";
 type UseCanvasHotkeysArgs = {
   onClear: () => void;
   onRedo: () => void;
+  onResetZoom: () => void;
   onSelectTool: (tool: Tool) => void;
   onUndo: () => void;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
 };
 
 export const useCanvasHotkeys = ({
   onClear,
   onRedo,
+  onResetZoom,
   onSelectTool,
-  onUndo
+  onUndo,
+  onZoomIn,
+  onZoomOut
 }: UseCanvasHotkeysArgs) => {
   const selectPen = useCallback(() => onSelectTool("pen"), [onSelectTool]);
   const selectEraser = useCallback(() => onSelectTool("eraser"), [onSelectTool]);
@@ -37,6 +43,21 @@ export const useCanvasHotkeys = ({
         callback: onClear,
         hotkey: "Mod+Backspace",
         options: { meta: { name: "Clear board", description: "Remove all strokes" } }
+      },
+      {
+        callback: onZoomIn,
+        hotkey: "Mod+=",
+        options: { meta: { name: "Zoom in", description: "Zoom in on the canvas" } }
+      },
+      {
+        callback: onZoomOut,
+        hotkey: "Mod+-",
+        options: { meta: { name: "Zoom out", description: "Zoom out of the canvas" } }
+      },
+      {
+        callback: onResetZoom,
+        hotkey: "Mod+0",
+        options: { meta: { name: "Reset zoom", description: "Reset the zoom level" } }
       },
       {
         callback: selectPen,
