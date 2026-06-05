@@ -53,4 +53,11 @@ export type Interaction =
     }
   | {
       mode: "erase";
+    }
+  | {
+      gesturePointerIds: [number, number];
+      initialCamera: Camera;
+      initialDistance: number;
+      initialMidpoint: Point;
+      mode: "gesture";
     };

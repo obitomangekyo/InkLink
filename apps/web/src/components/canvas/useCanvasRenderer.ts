@@ -11,6 +11,7 @@ import {
   clamp,
   getPanIndicator,
   getScreenPoint,
+  getViewportCenter,
   maxZoom,
   minZoom,
   screenToWorld
@@ -52,8 +53,17 @@ type UseCanvasRendererResult = {
   panIndicator: PanIndicatorState;
   pointer: Point | null;
   redo: () => void;
+  resetZoom: () => void;
   undo: () => void;
+  zoomBy: (factor: number) => void;
 };
+
+const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
+
+const midpoint = (a: Point, b: Point): Point => ({
+  x: (a.x + b.x) / 2,
+  y: (a.y + b.y) / 2
+});
 
 const initialCamera = (): Camera => ({
   x: window.innerWidth / 2,
@@ -108,6 +118,8 @@ export const useCanvasRenderer = ({
   const interactionRef = useRef<Interaction | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const statsRef = useRef<BoardStats>(publishStats(strokesRef.current, redoStackRef.current));
+  const pointerRef = useRef<Point | null>(null);
+  const activePointersRef = useRef<Map<number, Point>>(new Map());
 
   const [camera, setCamera] = useState<Camera>(cameraRef.current);
   const [pointer, setPointerState] = useState<Point | null>(null);
@@ -258,9 +270,71 @@ export const useCanvasRenderer = ({
     requestRender();
   };
 
+  const updatePointer = useCallback((next: Point | null) => {
+    pointerRef.current = next;
+    setPointerState(next);
+  }, []);
+
+  const finalizeDrawStroke = (stroke: Stroke) => {
+    if (!hasVisiblePointMovement(stroke)) {
+      return;
+    }
+
+    strokesRef.current = [...strokesRef.current, stroke];
+    redoStackRef.current = [];
+    reportStats(publishStats(strokesRef.current, redoStackRef.current));
+  };
+
+  const releasePointerCapture = (
+    event: React.PointerEvent<HTMLCanvasElement>,
+    pointerId: number
+  ) => {
+    if (event.currentTarget.hasPointerCapture(pointerId)) {
+      event.currentTarget.releasePointerCapture(pointerId);
+    }
+  };
+
   const handleBoardPointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const screenPoint = getScreenPoint(event);
-    setPointerState(screenPoint);
+    updatePointer(screenPoint);
+
+    event.currentTarget.setPointerCapture(event.pointerId);
+    activePointersRef.current.set(event.pointerId, screenPoint);
+
+    // A third (or later) pointer arriving mid-gesture is ignored — the gesture
+    // is locked to the first two fingers.
+    if (interactionRef.current?.mode === "gesture") {
+      return;
+    }
+
+    // A second pointer arriving on the canvas promotes the current interaction
+    // into a pinch-zoom / two-finger pan gesture. Any partial draw stroke is
+    // committed as-is first so the user doesn't lose work.
+    if (activePointersRef.current.size >= 2) {
+      const currentInteraction = interactionRef.current;
+
+      if (currentInteraction?.mode === "draw") {
+        finalizeDrawStroke(currentInteraction.stroke);
+      }
+
+      const firstTwo = Array.from(activePointersRef.current).slice(0, 2);
+      const [firstEntry, secondEntry] = firstTwo;
+
+      if (firstEntry && secondEntry) {
+        const [firstId, firstPoint] = firstEntry;
+        const [secondId, secondPoint] = secondEntry;
+
+        interactionRef.current = {
+          gesturePointerIds: [firstId, secondId],
+          initialCamera: { ...cameraRef.current },
+          initialDistance: distance(firstPoint, secondPoint),
+          initialMidpoint: midpoint(firstPoint, secondPoint),
+          mode: "gesture"
+        };
+        requestRender();
+        return;
+      }
+    }
 
     const shouldPan =
       activeToolRef.current === "pan" ||
@@ -270,8 +344,6 @@ export const useCanvasRenderer = ({
       event.altKey ||
       event.ctrlKey ||
       event.metaKey;
-
-    event.currentTarget.setPointerCapture(event.pointerId);
 
     if (shouldPan) {
       interactionRef.current = {
@@ -292,14 +364,52 @@ export const useCanvasRenderer = ({
   };
 
   const handleBoardPointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    setPointerState(getScreenPoint(event));
+    const screenPoint = getScreenPoint(event);
+    updatePointer(screenPoint);
+    activePointersRef.current.set(event.pointerId, screenPoint);
+
     const interaction = interactionRef.current;
 
     if (!interaction) {
       return;
     }
 
-    const screenPoint = getScreenPoint(event);
+    if (interaction.mode === "gesture") {
+      const [id1, id2] = interaction.gesturePointerIds;
+      const p1 = activePointersRef.current.get(id1);
+      const p2 = activePointersRef.current.get(id2);
+
+      if (!p1 || !p2) {
+        return;
+      }
+
+      const currentDistance = distance(p1, p2);
+      const currentMidpoint = midpoint(p1, p2);
+
+      // Guard against a zero-length initial distance (fingers landing on the
+      // exact same point); fall back to no-op instead of dividing by zero.
+      if (interaction.initialDistance === 0) {
+        return;
+      }
+
+      const zoomFactor = currentDistance / interaction.initialDistance;
+      const targetZoom = clamp(interaction.initialCamera.zoom * zoomFactor, minZoom, maxZoom);
+
+      // Keep the world point that was under the initial midpoint anchored
+      // under the current midpoint. This produces natural two-finger pan
+      // (midpoint drift) and zoom (distance change) in a single transform.
+      const worldUnderInitialMidpoint = screenToWorld(
+        interaction.initialMidpoint,
+        interaction.initialCamera
+      );
+
+      updateCamera({
+        x: currentMidpoint.x - worldUnderInitialMidpoint.x * targetZoom,
+        y: currentMidpoint.y - worldUnderInitialMidpoint.y * targetZoom,
+        zoom: targetZoom
+      });
+      return;
+    }
 
     if (interaction.mode === "pan") {
       const delta = {
@@ -341,31 +451,66 @@ export const useCanvasRenderer = ({
   };
 
   const handleBoardPointerLeave = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    setPointerState(null);
-    finishBoardInteraction(event);
+    updatePointer(null);
+    releaseBoardPointer(event);
   };
 
-  const finishBoardInteraction = (event: React.PointerEvent<HTMLCanvasElement>) => {
+  const releaseBoardPointer = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const pointerId = event.pointerId;
+    activePointersRef.current.delete(pointerId);
+
     const interaction = interactionRef.current;
 
-    if (!interaction) {
+    if (interaction?.mode === "gesture") {
+      const [id1, id2] = interaction.gesturePointerIds;
+      // If either of the gesture's two pointers lifted, exit gesture mode.
+      // The remaining pointer (if any) sits idle until the user lifts it too
+      // — starting a new draw on finger release would feel jarring.
+      if (pointerId === id1 || pointerId === id2) {
+        interactionRef.current = null;
+        releasePointerCapture(event, pointerId);
+        requestRender();
+        return;
+      }
+      releasePointerCapture(event, pointerId);
       return;
     }
 
-    if (interaction.mode === "draw" && hasVisiblePointMovement(interaction.stroke)) {
-      strokesRef.current = [...strokesRef.current, interaction.stroke];
-      redoStackRef.current = [];
-      reportStats(publishStats(strokesRef.current, redoStackRef.current));
+    if (activePointersRef.current.size > 0) {
+      releasePointerCapture(event, pointerId);
+      return;
+    }
+
+    if (interaction?.mode === "draw") {
+      finalizeDrawStroke(interaction.stroke);
     }
 
     interactionRef.current = null;
-
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-
+    releasePointerCapture(event, pointerId);
     requestRender();
   };
+
+  const zoomBy = useCallback(
+    (factor: number) => {
+      const anchor = pointerRef.current ?? getViewportCenter(cameraRef.current);
+      const beforeZoom = screenToWorld(anchor, cameraRef.current);
+      const nextZoom = clamp(cameraRef.current.zoom * factor, minZoom, maxZoom);
+
+      updateCamera({
+        x: anchor.x - beforeZoom.x * nextZoom,
+        y: anchor.y - beforeZoom.y * nextZoom,
+        zoom: nextZoom
+      });
+    },
+    [updateCamera]
+  );
+
+  const resetZoom = useCallback(() => {
+    updateCamera({
+      ...cameraRef.current,
+      zoom: 1
+    });
+  }, [updateCamera]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -423,14 +568,16 @@ export const useCanvasRenderer = ({
     camera,
     canvasRef,
     clearBoard,
-    handleBoardPointerCancel: finishBoardInteraction,
+    handleBoardPointerCancel: releaseBoardPointer,
     handleBoardPointerDown,
     handleBoardPointerLeave,
     handleBoardPointerMove,
-    handleBoardPointerUp: finishBoardInteraction,
+    handleBoardPointerUp: releaseBoardPointer,
     panIndicator,
     pointer,
     redo,
-    undo
+    resetZoom,
+    undo,
+    zoomBy
   };
 };
