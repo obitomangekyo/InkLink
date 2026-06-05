@@ -192,13 +192,17 @@ export function CanvasWorkspace() {
         onMoveStart={(event) => startPanelDrag("tools", event)}
         onMoveUpdate={movePanelDrag}
         onRedo={redo}
+        onResetZoom={resetZoom}
         onToolChange={setActiveTool}
         onToggle={() => togglePanel("tools")}
         onUndo={undo}
+        onZoomIn={onZoomIn}
+        onZoomOut={onZoomOut}
         palette={palette}
         panel={panels.tools}
         registerPanel={registerToolsPanel}
         stats={boardStats}
+        zoom={camera.zoom}
       />
     </section>
   );
